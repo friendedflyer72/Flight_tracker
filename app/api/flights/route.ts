@@ -5,23 +5,23 @@ export async function GET(request: Request) {
     const callsign = searchParams.get('callsign');
     const icao24s = searchParams.get('icao24s');
 
-    // Base URL for all states (OpenSky doesn't support filtering by callsign directly on the free API efficiently without bounding box, 
-    // but let's try to fetch a large area and filter, or use 'all' if allowed (often rate limited or heavy).
-    // Better approach for demo: Fetch US region and filter.
+    let apiUrl = 'https://opensky-network.org/api/states/all';
 
-    // Lamin: 24.396308, Lomin: -125.000000, Lamax: 49.384358, Lomax: -66.934570 (US)
-    const lamin = '24.396308';
-    const lomin = '-125.000000';
-    const lamax = '49.384358';
-    const lomax = '-66.934570';
-
-    let apiUrl = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
-
-    // If we have specific IDs to track, we still have to fetch the region (or all) in the free API 
-    // because the 'icao24' parameter is only for specific queries which might not give 'states' (live positions) easily 
-    // without authentication or paid plans for the /states/all endpoint with icao24 filter?
-    // Actually, /states/all supports ?icao24=... but only for authenticated users usually? 
-    // Let's stick to fetching the region and filtering on server for simplicity and robustness as anonymous.
+    // Construct OpenSky API URL based on request type
+    if (icao24s) {
+        // Efficient tracking: Fetch only specific flights
+        // OpenSky expects multiple 'icao24' parameters: ?icao24=abc&icao24=xyz
+        const params = new URLSearchParams();
+        const ids = icao24s.split(',');
+        ids.forEach(id => params.append('icao24', id.trim()));
+        apiUrl = `${apiUrl}?${params.toString()}`;
+    } else if (callsign) {
+        // Global Search: Fetch all states and filter on server
+        // No parameters needed for global fetch
+    } else {
+        // No search or tracking -> return empty
+        return NextResponse.json({ states: [] });
+    }
 
     try {
         const response = await fetch(apiUrl, {
@@ -40,22 +40,16 @@ export async function GET(request: Request) {
 
         let filteredStates = data.states;
 
+        // If searching by callsign, we need to filter the global list here
         if (callsign) {
             const query = callsign.toUpperCase().trim();
             filteredStates = filteredStates.filter((state: any[]) =>
                 state[1] && state[1].trim().includes(query)
             );
-        } else if (icao24s) {
-            const ids = icao24s.split(',');
-            filteredStates = filteredStates.filter((state: any[]) =>
-                ids.includes(state[0])
-            );
-        } else {
-            // If no search and no tracking list, return empty (as per new requirement: "initial don't fetch any flight data")
-            // But wait, the map needs to show something? No, user said "fetch only when user searches".
-            // So if no params, return empty.
-            return NextResponse.json({ states: [] });
         }
+        // If tracking (icao24s), the API already filtered for us, so we just return the result.
+        // However, strictly speaking, we might want to double check or just pass through.
+        // The API response for ?icao24=... contains only the requested flights.
 
         return NextResponse.json({ states: filteredStates });
     } catch (error) {

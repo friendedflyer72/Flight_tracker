@@ -37,6 +37,27 @@ export async function updateTrackedFlights(icao24s: string[]): Promise<Flight[]>
     }
 }
 
+export async function getFlightTrack(icao24: string): Promise<[number, number][]> {
+    try {
+        // Note: This endpoint might be rate limited or require auth for full history.
+        // We use time=0 to get track for the last 24h or current flight.
+        const response = await fetch(`https://opensky-network.org/api/tracks/all?icao24=${icao24}&time=0`);
+        if (!response.ok) {
+            // If 404 or 403, just return empty, don't crash
+            return [];
+        }
+        const data = await response.json();
+        if (data && data.path) {
+            // path is [time, lat, lng, baro_altitude, true_track, on_ground]
+            return data.path.map((p: any[]) => [p[1], p[2]]);
+        }
+        return [];
+    } catch (error) {
+        console.warn('Failed to fetch flight track:', error);
+        return [];
+    }
+}
+
 function parseStates(states: any[]): Flight[] {
     if (!states || !Array.isArray(states)) return [];
 
